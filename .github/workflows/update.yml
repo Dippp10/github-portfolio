@@ -1,0 +1,30 @@
+name: Auto Update Repo List
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # Runs daily at midnight UTC
+  workflow_dispatch:      # Manual run option
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - run: pip install requests
+
+      - run: python generate_readme.py
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - run: |
+          git config --local user.name "Dippp10"
+          git config --local user.email "deepikakarthik697@gmail.com"
+          git add README.md
+          git commit -m "Auto update repo list" || echo "No changes"
+          git push
