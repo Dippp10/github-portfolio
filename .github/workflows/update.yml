@@ -1,30 +1,63 @@
-name: Auto Update Repo List
+import requests
+import os
 
-on:
-  schedule:
-    - cron: '0 0 * * *'   # Runs daily at midnight UTC
-  workflow_dispatch:      # Manual run option
+USERNAME = "Dippp10"   # 🔹 Put your username here
+TOKEN = os.getenv("GH_TOKEN")       # 🔹 Token comes from GitHub Secret
 
-jobs:
-  update:
-    runs-on: ubuntu-latest
+# Use token only if available
+headers = {}
+if TOKEN:
+    headers["Authorization"] = f"token {TOKEN}"
 
-    steps:
-      - uses: actions/checkout@v3
+repos = []
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
+print("Fetching repositories...")
 
-      - run: pip install requests
+# Fetch up to 500 repos max (5 pages × 100)
+for page in range(1, 6):
+    url = f"https://api.github.com/user/repos?per_page=100&page={page}" if TOKEN else \
+          f"https://api.github.com/users/{USERNAME}/repos?per_page=100&page={page}"
 
-      - run: python generate_readme.py
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+    except requests.exceptions.RequestException as e:
+        print("Request failed:", e)
+        break
 
-      - run: |
-          git config --local user.name "Dippp10"
-          git config --local user.email "deepikakarthik697@gmail.com"
-          git add README.md
-          git commit -m "Auto update repo list" || echo "No changes"
-          git push
+    if response.status_code != 200:
+        print("API Error:", response.json())
+        break
+
+    data = response.json()
+
+    if not isinstance(data, list) or len(data) == 0:
+        break
+
+    repos.extend(data)
+
+print(f"Total repositories fetched: {len(repos)}")
+
+# Sort: Public first, then Private
+repos.sort(key=lambda r: r.get("private", False))
+
+# Generate README
+with open("README.md", "w", encoding="utf-8") as f:
+    f.write("# 📦 Consolidated Repository List\n\n")
+    f.write("| Repository | Stars | Forks | Visibility | Score |\n")
+    f.write("|------------|-------|-------|------------|-------|\n")
+
+    for repo in repos:
+        name = repo.get("name", "N/A")
+        url = repo.get("html_url", "#")
+        stars = repo.get("stargazers_count", 0)
+        forks = repo.get("forks_count", 0)
+        private = repo.get("private", False)
+
+        visibility = "Private" if private else "Public"
+
+        # Score formula (balanced and realistic)
+        score = min(10, round(5 + (stars * 0.3 + forks * 0.2), 1))
+
+        f.write(f"| [{name}]({url}) | {stars} | {forks} | {visibility} | {score} |\n")
+
+print("README generated successfully.")
