@@ -1,61 +1,48 @@
-name: Auto Update GitHub Repo List
+name: Fast Update GitHub Repo List
 
 on:
-  workflow_dispatch:      # Manual run
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'  # Daily at midnight UTC
+    - cron: '0 0 * * *'
 
 jobs:
   update:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repository
+      # 1️⃣ Checkout repo
       - uses: actions/checkout@v3
 
-      # 2️⃣ Install jq for JSON parsing
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+      # 2️⃣ Install GitHub CLI
+      - name: Install GitHub CLI
+        run: sudo apt-get update && sudo apt-get install -y gh
 
-      # 3️⃣ Generate README with repo table
+      # 3️⃣ Authenticate GitHub CLI with token
+      - name: Authenticate GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          gh auth login --with-token <<< "$GH_TOKEN"
+
+      # 4️⃣ Generate README
       - name: Generate README
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}    # Required for private repos
-          USERNAME: Dippp10       # Replace with your GitHub username
+          USERNAME: Dippp10 
         run: |
           echo "# 📦 Consolidated Repository List" > README.md
           echo "" >> README.md
           echo "| Repository | Stars | Forks | Visibility | Score |" >> README.md
           echo "|------------|-------|-------|------------|-------|" >> README.md
 
-          # Loop through up to 5 pages of repos (100 per page)
-          for page in {1..5}
-          do
-            response=$(curl -s -H "Authorization: token $GH_TOKEN" \
-              "https://api.github.com/user/repos?per_page=100&page=$page")
+          # Fetch all repos (public + private) in one go
+          gh repo list "$USERNAME" --limit 1000 --json name,htmlUrl,stargazerCount,forkCount,isPrivate \
+          --jq '.[] | "| [" + .name + "](" + .htmlUrl + ") | " +
+                 (.stargazerCount|tostring) + " | " +
+                 (.forkCount|tostring) + " | " +
+                 (if .isPrivate then "Private" else "Public" end) + " | 10.0 |"' \
+          >> README.md
 
-            # Skip if not a JSON array
-            is_array=$(echo "$response" | jq 'if type=="array" then true else false end')
-            if [ "$is_array" != "true" ]; then
-              echo "Warning: API response is not an array, stopping"
-              break
-            fi
-
-            count=$(echo "$response" | jq 'length')
-            if [ "$count" -eq 0 ]; then
-              break
-            fi
-
-            # Append repos to README
-            echo "$response" | jq -r '.[] |
-              "| [" + .name + "](" + .html_url + ") | " +
-              (.stargazers_count|tostring) + " | " +
-              (.forks_count|tostring) + " | " +
-              (if .private then "Private" else "Public" end) + " | " +
-              "10.0 |" ' >> README.md
-          done
-
-      # 4️⃣ Commit & Push changes
+      # 5️⃣ Commit & push changes
       - name: Commit & Push
         run: |
           git config user.name "Dippp10"
