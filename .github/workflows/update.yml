@@ -1,53 +1,65 @@
-name: Auto Update Repo List
+name: Auto Update GitHub Repo List
 
 on:
+  workflow_dispatch:      # Manual run
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    - cron: '0 0 * * *'  # Daily at midnight UTC
 
 jobs:
   update:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout repository
       - uses: actions/checkout@v3
 
+      # 2️⃣ Install jq for JSON parsing
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # 3️⃣ Generate README with repo table
       - name: Generate README
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          USERNAME: Dippp10 
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}    # Required for private repos
+          USERNAME: Dippp10       # Replace with your GitHub username
         run: |
           echo "# 📦 Consolidated Repository List" > README.md
           echo "" >> README.md
           echo "| Repository | Stars | Forks | Visibility | Score |" >> README.md
           echo "|------------|-------|-------|------------|-------|" >> README.md
 
-          page=1
-          while true; do
+          # Loop through up to 5 pages of repos (100 per page)
+          for page in {1..5}
+          do
             response=$(curl -s -H "Authorization: token $GH_TOKEN" \
               "https://api.github.com/user/repos?per_page=100&page=$page")
 
-            count=$(echo "$response" | jq length)
+            # Skip if not a JSON array
+            is_array=$(echo "$response" | jq 'if type=="array" then true else false end')
+            if [ "$is_array" != "true" ]; then
+              echo "Warning: API response is not an array, stopping"
+              break
+            fi
 
+            count=$(echo "$response" | jq 'length')
             if [ "$count" -eq 0 ]; then
               break
             fi
 
-            echo "$response" | jq -r '.[] | 
+            # Append repos to README
+            echo "$response" | jq -r '.[] |
               "| [" + .name + "](" + .html_url + ") | " +
               (.stargazers_count|tostring) + " | " +
               (.forks_count|tostring) + " | " +
               (if .private then "Private" else "Public" end) + " | " +
-              ((5 + (.stargazers_count * 0.3 + .forks_count * 0.2)) | tostring) +
-              " |"' >> README.md
-
-            page=$((page+1))
+              "10.0 |" ' >> README.md
           done
 
+      # 4️⃣ Commit & Push changes
       - name: Commit & Push
         run: |
-          git config --local user.name "Dippp10"
-          git config --local user.email "deepikakarthik697@gmail.com"
+          git config user.name "Dippp10"
+          git config user.email "deepikakarthik697@gmail.com"
           git add README.md
           git commit -m "Auto update repo list" || echo "No changes"
           git push
